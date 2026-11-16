@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Full Airport & TRACON ATC Simulator</title>
+<style>
+  :root {
+    --bg: #070d0a;
+    --panel: #0d1712;
+    --border: #1e3b2c;
+    --green: #39ff14;
+    --green-dim: #1d7a0c;
+    --amber: #ffb000;
+    --cyan: #00e5ff;
+    --red: #ff3b3b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
+  body { background: var(--bg); color: var(--green); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  
+  header {
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  header h1 { font-size: 15px; letter-spacing: 1px; color: var(--cyan); }
+  
+  .view-tabs { display: flex; gap: 6px; }
+  .tab-btn {
+    background: #08120d; color: #8ab89e; border: 1px solid var(--border);
+    padding: 6px 12px; font-size: 12px; font-weight: bold; cursor: pointer; border-radius: 3px;
+  }
+  .tab-btn.active { background: var(--cyan); color: #000; border-color: var(--cyan); }
+
+  .stats { display: flex; gap: 14px; font-size: 13px; align-items: center; }
+  .stats span b { color: #fff; }
+  .test-audio-btn {
+    background: #13291e; color: var(--amber); border: 1px solid var(--amber);
+    padding: 4px 10px; font-size: 11px; cursor: pointer; border-radius: 3px; font-weight: bold;
+  }
+  .test-audio-btn:hover { background: var(--amber); color: #000; }
+
+  .main { display: flex; flex: 1; height: calc(100vh - 44px); }
+  .radar-wrap { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; background: #040806; }
+  canvas { display: block; cursor: crosshair; }
+
+  #emergencyBanner {
+    display: none; position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(255, 59, 59, 0.92); color: #fff; padding: 8px 18px;
+    border: 2px solid #fff; border-radius: 4px; font-weight: bold; font-size: 13px;
+    z-index: 8; box-shadow: 0 0 15px rgba(255, 59, 59, 0.7); animation: pulse 1.2s infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.75; } }
+  
+  #startOverlay {
+    position: absolute; inset: 0; background: rgba(4, 8, 6, 0.94);
+    display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 16px; z-index: 10; padding: 20px;
+  }
+  #startOverlay button {
+    background: var(--green); color: #000; border: none; padding: 14px 28px;
+    font-size: 16px; font-weight: bold; cursor: pointer; border-radius: 4px;
+  }
+  #startOverlay button:hover { background: #66ff47; }
+  .tip-box {
+    max-width: 520px; background: #0d1712; border: 1px solid var(--border);
+    padding: 12px; font-size: 12px; color: #9ec7b0; line-height: 1.5; border-radius: 4px;
+  }
+
+  .sidebar {
+    width: 410px; background: var(--panel); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; padding: 10px; gap: 8px; overflow-y: auto;
+  }
+  .box { border: 1px solid var(--border); padding: 9px; background: #080f0c; border-radius: 4px; }
+  .box h2 { font-size: 11px; color: var(--cyan); margin-bottom: 6px; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 4px; display: flex; justify-content: space-between; }
+
+  .rec-box {
+    background: #0c1f16; border: 1px solid var(--amber); padding: 8px; border-radius: 4px;
+  }
+  .rec-box .rec-label { font-size: 10px; color: var(--amber); text-transform: uppercase; font-weight: bold; margin-bottom: 4px; }
+  #recommendedText { font-size: 13px; color: #fff; font-weight: bold; line-height: 1.4; }
+  .rec-actions { margin-top: 6px; display: flex; gap: 6px; }
+  .rec-send-btn {
+    background: var(--amber); color: #000; border: none; padding: 4px 10px;
+    font-size: 11px; font-weight: bold; cursor: pointer; border-radius: 3px;
+  }
+
+  #strips { display: flex; flex-direction: column; gap: 5px; max-height: 185px; overflow-y: auto; }
+  .strip {
+    background: #101f18; border-left: 4px solid var(--green); padding: 5px 8px;
+    font-size: 11px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;
+  }
+  .strip.selected { border-left-color: var(--cyan); background: #152b22; }
+  .strip.ground { border-left-color: #b388ff; }
+  .strip.landing { border-left-color: var(--amber); }
+  .strip.emergency { border-left-color: var(--red); background: #2b1111; }
+  .strip .callsign { font-weight: bold; color: #fff; font-size: 12px; }
+  .strip .meta { color: #8ab89e; font-size: 10px; }
+
+  #log {
+    flex: 1; overflow-y: auto; font-size: 11px; display: flex; flex-direction: column; gap: 5px;
+    min-height: 100px; max-height: 170px;
+  }
+  .msg-atc { color: var(--cyan); }
+  .msg-pilot { color: var(--green); }
+  .msg-sys { color: var(--amber); font-style: italic; }
+  .msg-emg { color: var(--red); font-weight: bold; }
+
+  .ptt-btn {
+    width: 100%; padding: 12px; font-size: 13px; font-weight: bold;
+    background: #13291e; color: var(--green); border: 2px solid var(--green);
+    border-radius: 4px; cursor: pointer; transition: 0.1s; user-select: none;
+  }
+  .ptt-btn.active { background: var(--red); color: #fff; border-color: #ff8080; }
+  
+  .cmd-form { display: flex; gap: 6px; margin-top: 6px; }
+  .cmd-form input {
+    flex: 1; background: #040806; border: 1px solid var(--border); color: #fff;
+    padding: 7px; font-size: 12px; outline: none;
+  }
+  .cmd-form button {
+    background: var(--green-dim); color: #fff; border: 1px solid var(--green);
+    padding: 0 12px; cursor: pointer; font-weight: bold;
+  }
+  .status-bar { font-size: 10px; color: #7fa890; margin-top: 5px; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>KPHX AIRPORT & TRACON</h1>
+    <div class="view-tabs">
+      <button id="tabRadar" class="tab-btn active" onclick="switchView('RADAR')">TRACON RADAR (35 NM)</button>
+      <button id="tabGround" class="tab-btn" onclick="switchView('GROUND')">GROUND & TOWER (3 RWYS)</button>
+    </div>
+  </div>
+  <div class="stats">
+    <button class="test-audio-btn" id="testVoiceBtn">TEST PILOT VOICE</button>
+    <span>SCORE: <b id="score">0</b></span>
+    <span>OPS: <b id="landed">0</b></span>
+    <span>ACTIVE: <b id="activeCount">0</b></span>
+  </div>
+</header>
+
+<div class="main">
+  <div class="radar-wrap" id="radarWrap">
+    <div id="emergencyBanner">MAYDAY EMERGENCY IN PROGRESS</div>
+    <div id="startOverlay">
+      <h2 style="color:var(--cyan)">KPHX FULL AIRPORT & TRACON SIMULATOR</h2>
+      <div class="tip-box">
+        <b>What's New:</b><br>
+        • <b>3-Runway Airport + Ground View:</b> Switch between wide TRACON Radar and Airport Ground/Tower surface view (Runways <b>26</b>, <b>25R</b>, and <b>25L</b>).<br>
+        • <b>Slow Paced Start:</b> Traffic begins calmly with 1 aircraft so you can learn the flow.<br>
+        • <b>1-in-25 Random Emergencies:</b> Every spawn has a 4% (1 in 25) chance of declaring a Mayday emergency requiring priority landing!
+      </div>
+      <button id="startBtn">START SIMULATOR & LOCK MIC</button>
+    </div>
+    <canvas id="radarCanvas"></canvas>
+  </div>
+
+  <div class="sidebar">
+    <div class="rec-box">
+      <div class="rec-label">Recommended Radio Callout (Read Aloud)</div>
+      <div id="recommendedText">Waiting for aircraft...</div>
+      <div class="rec-actions">
+        <button class="rec-send-btn" id="sendRecBtn">AUTO-TRANSMIT CALLOUT</button>
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>Flight Strips (Click to Select) <span id="viewIndicator">VIEW: RADAR</span></h2>
+      <div id="strips"></div>
+    </div>
+
+    <div class="box" style="flex:1; display:flex; flex-direction:column;">
+      <h2>Radio Frequency <span id="freqLabel">120.70 MHz (TRACON)</span></h2>
+      <div id="log"></div>
+    </div>
+
+    <div class="box">
+      <h2>Controller Radio</h2>
+      <button id="pttBtn" class="ptt-btn">HOLD [SPACE] OR CLICK TO TALK</button>
+      <form class="cmd-form" id="cmdForm">
+        <input type="text" id="cmdInput" placeholder="e.g. Delta 412 taxi to runway 25R" autocomplete="off">
+        <button type="submit">TX</button>
+      </form>
+      <div class="status-bar">
+        <span id="micStatus">Mic: Standby</span>
+        <span id="voiceStatus">Voice: Ready</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==========================================
+// 1. PERSISTENT MIC & RELIABLE TTS ENGINE
+// ==========================================
+let audioCtx = null;
+let voices = [];
+let persistentMicStream = null;
+let speechQueue = [];
+let isSpeaking = false;
+
+function initAudioAndVoices() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  const loadVoices = () => {
+    voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      document.getElementById('voiceStatus').textContent = `Voice: ${voices.length} loaded`;
+    }
+  };
+  loadVoices();
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+}
+
+async function lockMicrophonePermission() {
+  try {
+    if (!persistentMicStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      persistentMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      document.getElementById('micStatus').textContent = 'Mic: Locked & Ready';
+      document.getElementById('micStatus').style.color = '#39ff14';
+    }
+  } catch (err) {
+    document.getElementById('micStatus').textContent = 'Mic: Blocked (Use Text)';
+    document.getElementById('micStatus').style.color = '#ffb000';
+  }
+}
+
+function playRadioClick(freq = 1350) {
+  if (!audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.05);
+  } catch (e) {}
+}
+
+function pilotSpeak(text, voiceIndex = 0, isEmergency = false) {
+  logMessage(isEmergency ? 'EMG' : 'PILOT', text);
+  if (!('speechSynthesis' in window)) return;
+  speechQueue.push({ text, voiceIndex, isEmergency });
+  processSpeechQueue();
+}
+
+function processSpeechQueue() {
+  if (isSpeaking || speechQueue.length === 0) return;
+  isSpeaking = true;
+  const item = speechQueue.shift();
+
+  window.speechSynthesis.cancel();
+  playRadioClick(item.isEmergency ? 900 : 1400);
+
+  const utter = new SpeechSynthesisUtterance(item.text);
+  const enVoices = voices.filter(v => v.lang && v.lang.toLowerCase().includes('en'));
+  if (enVoices.length > 0) {
+    utter.voice = enVoices[item.voiceIndex % enVoices.length];
+  }
+  utter.rate = item.isEmergency ? 1.15 : 1.05;
+  utter.pitch = 0.95 + (item.voiceIndex % 3) * 0.08;
+  utter.volume = 1.0;
+
+  utter.onend = () => {
+    playRadioClick(1100);
+    isSpeaking = false;
+    setTimeout(processSpeechQueue, 150);
+  };
+  utter.onerror = () => {
+    isSpeaking = false;
+    setTimeout(processSpeechQueue, 150);
+  };
+
+  window.speechSynthesis.speak(utter);
+  setTimeout(() => {
+    if (isSpeaking && !window.speechSynthesis.speaking) {
+      isSpeaking = false;
+      processSpeechQueue();
+    }
+  }, 6000);
+}
+
+// ==========================================
+// 2. SPEECH RECOGNITION (PTT)
+// ==========================================
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let isListening = false;
+
+if (SpeechRecognition) {
+  recognition = new SpeechRecognition();
+  recognition.lang = 'en-US';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    document.getElementById('cmdInput').value = transcript;
+    processCommand(transcript);
+  };
+
+  recognition.onerror = (e) => {
+    if (e.error !== 'aborted' && e.error !== 'no-speech') {
+      logMessage('SYS', `Mic notice: ${e.error}. Type commands or click Auto-Transmit.`);
+    }
+    stopListening();
+  };
+
+  recognition.onend = () => stopListening();
+}
+
+function startListening() {
+  if (!recognition) {
+    logMessage('SYS', 'Voice recognition requires Chrome/Edge. Use text or Auto-Transmit.');
+    return;
+  }
+  if (isListening) return;
+  if (window.speechSynthesis.speaking) {
+    window.speechSynthesis.cancel();
+    isSpeaking = false;
+  }
+  isListening = true;
+  const btn = document.getElementById('pttBtn');
+  btn.classList.add('active');
+  btn.textContent = 'LISTENING... SPEAK CLEARLY';
+  try { recognition.start(); } catch (e) {}
+}
+
+function stopListening() {
+  isListening = false;
+  const btn = document.getElementById('pttBtn');
+  btn.classList.remove('active');
+  btn.textContent = 'HOLD [SPACE] OR CLICK TO TALK';
+  try { recognition.stop(); } catch (e) {}
+}
+
+// ==========================================
+// 3. AIRPORT & TRACON SIMULATION ENGINE
+// ==========================================
+const canvas = document.getElementById('radarCanvas');
+const ctx = canvas.getContext('2d');
+let width, height, cx, cy, radarScale, groundScale;
+let currentView = 'RADAR'; // 'RADAR' or 'GROUND'
+
+// 3 Parallel Runways (East-West orientation, heading 260/250)
+// Coordinates in NM relative to airport center (0,0)
+const RUNWAYS = {
+  '26':  { id: '26',  y: -0.45, xWest: -0.9, xEast: 0.9, hdg: 260, label: 'RWY 26 (NORTH)' },
+  '25R': { id: '25R', y:  0.15, xWest: -1.0, xEast: 1.0, hdg: 250, label: 'RWY 25R (CENTER)' },
+  '25L': { id: '25L', y:  0.55, xWest: -0.8, xEast: 0.8, hdg: 250, label: 'RWY 25L (SOUTH)' }
+};
+
+const GATES = [
+  { id: 'A1', x: -0.5, y: -0.15 },
+  { id: 'A2', x: -0.1, y: -0.15 },
+  { id: 'B1', x:  0.3, y: -0.15 },
+  { id: 'B2', x:  0.6, y: -0.15 }
+];
+
+const AIRLINES = [
+  { name: 'Delta', code: 'DAL' },
+  { name: 'Southwest', code: 'SWA' },
+  { name: 'United', code: 'UAL' },
+  { name: 'American', code: 'AAL' },
+  { name: 'JetBlue', code: 'JBU' },
+  { name: 'Alaska', code: 'ASA' }
+];
+
+const EMERGENCIES = [
+  'declaring an emergency, engine number two flameout, requesting priority landing',
+  'Mayday Mayday, low fuel emergency, need immediate vectors to nearest runway',
+  'declaring emergency, cabin pressurization failure, descending immediately',
+  'Mayday, hydraulic failure, requesting straight-in priority approach'
+];
+
+let planes = [];
+let selectedId = null;
+let score = 0;
+let opsCount = 0;
+let sweepAngle = 0;
+let lastTime = 0;
+
+function switchView(view) {
+  currentView = view;
+  document.getElementById('tabRadar').classList.toggle('active', view === 'RADAR');
+  document.getElementById('tabGround').classList.toggle('active', view === 'GROUND');
+  document.getElementById('viewIndicator').textContent = `VIEW: ${view}`;
+  document.getElementById('freqLabel').textContent = view === 'RADAR' ? '120.70 MHz (TRACON)' : '118.70 MHz (GND/TWR)';
+  updateRecommendedCallout();
+}
+
+function resize() {
+  const wrap = document.getElementById('radarWrap');
+  width = canvas.width = wrap.clientWidth;
+  height = canvas.height = wrap.clientHeight;
+  cx = width / 2;
+  cy = height / 2;
+  radarScale = Math.min(width, height) / 72;   // ~36 NM radius
+  groundScale = Math.min(width, height) / 2.6; // Zoomed into 2.6 NM airport surface
+}
+window.addEventListener('resize', resize);
+
+function spawnTraffic() {
+  if (planes.length >= 6) return;
+
+  // Alternate between airborne arrival and ground departure (start with arrival)
+  const hasGround = planes.some(p => p.phase === 'GATE' || p.phase === 'TAXI_OUT' || p.phase === 'HOLD_SHORT');
+  const spawnType = (planes.length === 0 || hasGround) ? 'ARRIVAL' : (Math.random() < 0.55 ? 'ARRIVAL' : 'DEPARTURE');
+
+  const airline = AIRLINES[Math.floor(Math.random() * AIRLINES.length)];
+  const flightNum = Math.floor(100 + Math.random() * 899);
+  const callsign = `${airline.code}${flightNum}`;
+  const spokenName = `${airline.name} ${flightNum.toString().split('').join(' ')}`;
+
+  // 1 in 25 chance (4%) of random emergency on arrivals
+  const isEmergency = (spawnType === 'ARRIVAL') && (Math.floor(Math.random() * 25) === 0);
+
+  if (spawnType === 'ARRIVAL') {
+    const angle = (Math.random() - 0.5) * Math.PI * 1.4; // Mostly East/North/South
+    const dist = 27 + Math.random() * 4;
+    const x = Math.cos(angle) * dist;
+    const y = Math.sin(angle) * dist;
+
+    let hdg = (Math.atan2(-y, -x) * 180 / Math.PI + 90 + 360) % 360;
+    hdg = Math.round(hdg / 10) * 10;
+    const alt = (6 + Math.floor(Math.random() * 4)) * 1000;
+    const spd = 220;
+
+    const plane = {
+      id: Date.now() + Math.random(),
+      type: 'ARRIVAL',
+      phase: 'AIRBORNE',
+      callsign,
+      airline: airline.name.toLowerCase(),
+      flightNum: flightNum.toString(),
+      spokenName,
+      x, y,
+      hdg, targetHdg: hdg,
+      alt, targetAlt: alt,
+      spd, targetSpd: spd,
+      assignedRwy: '26',
+      clearedApproach: false,
+      isEmergency,
+      history: [],
+      voiceIdx: Math.floor(Math.random() * 10)
+    };
+
+    planes.push(plane);
+    if (!selectedId) selectedId = plane.id;
+    updateStrips();
+    updateRecommendedCallout();
+
+    if (isEmergency) {
+      const reason = EMERGENCIES[Math.floor(Math.random() * EMERGENCIES.length)];
+      document.getElementById('emergencyBanner').style.display = 'block';
+      document.getElementById('emergencyBanner').textContent = `EMERGENCY: ${callsign} DECLARED MAYDAY!`;
+      pilotSpeak(`Mayday, Mayday, Mayday! Phoenix Approach, ${plane.spokenName}, ${reason}!`, plane.voiceIdx, true);
+    } else {
+      pilotSpeak(`Phoenix Approach, ${plane.spokenName} with you at ${alt} feet, heading ${hdg}.`, plane.voiceIdx);
+    }
+  } else {
+    // DEPARTURE AT GATE
+    const gate = GATES[Math.floor(Math.random() * GATES.length)];
+    const plane = {
+      id: Date.now() + Math.random(),
+      type: 'DEPARTURE',
+      phase: 'GATE',
+      gateId: gate.id,
+      callsign,
+      airline: airline.name.toLowerCase(),
+      flightNum: flightNum.toString(),
+      spokenName,
+      x: gate.x,
+      y: gate.y,
+      hdg: 90, targetHdg: 90,
+      alt: 0, targetAlt: 0,
+      spd: 0, targetSpd: 0,
+      assignedRwy: '25R',
+      clearedApproach: false,
+      isEmergency: false,
+      history: [],
+      voiceIdx: Math.floor(Math.random() * 10)
+    };
+
+    planes.push(plane);
+    if (!selectedId) selectedId = plane.id;
+    updateStrips();
+    updateRecommendedCallout();
+    pilotSpeak(`Phoenix Ground, ${plane.spokenName} at Gate ${gate.id}, ready to taxi with information Alpha.`, plane.voiceIdx);
+  }
+}
+
+// ==========================================
+// 4. RECOMMENDED PHRASEOLOGY GENERATOR
+// ==========================================
+function getRecommendedCallout(p) {
+  if (!p) return 'Waiting for active aircraft...';
+  const name = `${p.airline.charAt(0).toUpperCase() + p.airline.slice(1)} ${p.flightNum}`;
+
+  if (p.phase === 'GATE') {
+    return `"${name}, taxi to runway 25R"`;
+  }
+  if (p.phase === 'TAXI_OUT') {
+    return `(Taxiing to Runway ${p.assignedRwy} hold short line...)`;
+  }
+  if (p.phase === 'HOLD_SHORT') {
+    return `"${name}, runway ${p.assignedRwy} cleared for takeoff"`;
+  }
+  if (p.phase === 'TAKEOFF_ROLL' || p.phase === 'DEPARTING') {
+    return `"${name}, climb and maintain 8000"`;
+  }
+  if (p.phase === 'LANDED_TAXI') {
+    return `"${name}, taxi to gate"`;
+  }
+
+  // AIRBORNE ARRIVAL
+  const rwy = RUNWAYS[p.assignedRwy] || RUNWAYS['26'];
+  if (p.clearedApproach) {
+    return `"${name} is cleared ILS Runway ${rwy.id} — monitor final."`;
+  }
+
+  const dy = p.y - rwy.y;
+  if (p.x < 6) {
+    if (Math.abs(dy) < 5) {
+      const turnHdg = dy < 0 ? 180 : 360;
+      return `"${name}, fly heading ${turnHdg}, descend and maintain 3000"`;
+    }
+    return `"${name}, fly heading 090, descend and maintain 4000"`;
+  }
+
+  if (Math.abs(dy) > 2.2) {
+    const interceptHdg = dy > 0 ? 310 : 210;
+    if (p.alt > 3500) {
+      return `"${name}, fly heading ${interceptHdg}, descend and maintain 3000"`;
+    }
+    return `"${name}, fly heading ${interceptHdg}"`;
+  }
+
+  if (p.alt > 3500) {
+    return `"${name}, fly heading ${rwy.hdg}, descend and maintain 3000"`;
+  }
+
+  return `"${name}, cleared ILS runway ${rwy.id}"`;
+}
+
+function updateRecommendedCallout() {
+  const p = planes.find(pl => pl.id === selectedId);
+  const rec = getRecommendedCallout(p);
+  document.getElementById('recommendedText').textContent = rec;
+}
+
+// ==========================================
+// 5. NATURAL LANGUAGE ATC COMMAND PARSER
+// ==========================================
+function normalizeNumbers(text) {
+  const words = {
+    zero: '0', one: '1', two: '2', three: '3', four: '4',
+    five: '5', six: '6', seven: '7', eight: '8', nine: '9', niner: '9',
+    thousand: '000', hundred: '00'
+  };
+  let out = text.toLowerCase();
+  out = out.replace(/\b(zero|one|two|three|four|five|six|seven|eight|nine|niner)\b/g, m => words[m]);
+  out = out.replace(/(\d)\s+(?=\d)/g, '$1');
+  out = out.replace(/(\d+)\s*thousand/g, (_, n) => (parseInt(n) * 1000).toString());
+  out = out.replace(/25\s*right/g, '25r').replace(/25\s*left/g, '25l');
+  return out;
+}
+
+function extractRunway(clean) {
+  if (clean.includes('25r')) return '25R';
+  if (clean.includes('25l')) return '25L';
+  if (clean.includes('26')) return '26';
+  return null;
+}
+
+function processCommand(rawText) {
+  const cleanText = rawText.replace(/^"|"$/g, '').trim();
+  logMessage('ATC', cleanText);
+  const clean = normalizeNumbers(cleanText);
+
+  let target = null;
+  for (const p of planes) {
+    if (clean.includes(p.airline) || clean.includes(p.flightNum) || clean.includes(p.callsign.toLowerCase())) {
+      target = p;
+      break;
+    }
+  }
+  if (!target && selectedId) {
+    target = planes.find(p => p.id === selectedId);
+  }
+  if (!target) {
+    logMessage('SYS', 'No aircraft selected. Click a flight strip or say airline & flight number.');
+    return;
+  }
+
+  selectedId = target.id;
+  let readbacks = [];
+  const rwy = extractRunway(clean);
+
+  // GROUND / TOWER COMMANDS
+  if (clean.includes('gate') || clean.includes('ramp') || clean.includes('park')) {
+    target.phase = 'TAXI_GATE';
+    target.targetSpd = 20;
+    readbacks.push('taxi to the gate');
+  } else if (clean.includes('taxi')) {
+    const chosenRwy = rwy || target.assignedRwy || '25R';
+    target.assignedRwy = chosenRwy;
+    target.phase = 'TAXI_OUT';
+    target.targetSpd = 20;
+    readbacks.push(`taxi to runway ${chosenRwy}`);
+  }
+
+  if (clean.includes('takeoff') || clean.includes('take off') || clean.includes('depart')) {
+    const chosenRwy = rwy || target.assignedRwy || '25R';
+    target.assignedRwy = chosenRwy;
+    target.phase = 'TAKEOFF_ROLL';
+    target.targetAlt = 8000;
+    target.targetSpd = 220;
+    readbacks.push(`runway ${chosenRwy} cleared for takeoff`);
+  }
+
+  // AIRBORNE COMMANDS
+  const hdgMatch = clean.match(/(?:heading|turn|fly)\s*(?:left|right)?\s*(?:heading)?\s*(\d{1,3})/);
+  if (hdgMatch) {
+    let hdg = parseInt(hdgMatch[1]) % 360;
+    if (hdg === 0) hdg = 360;
+    target.targetHdg = hdg;
+    target.clearedApproach = false;
+    readbacks.push(`fly heading ${hdg}`);
+  }
+
+  const altMatch = clean.match(/(?:climb|descend|maintain|altitude)\s*(?:and maintain)?\s*(\d{3,5})/);
+  if (altMatch) {
+    let alt = parseInt(altMatch[1]);
+    if (alt < 100) alt *= 1000;
+    alt = Math.max(2000, Math.min(14000, alt));
+    target.targetAlt = alt;
+    readbacks.push(`${alt > target.alt ? 'climb' : 'descend'} and maintain ${alt}`);
+  }
+
+  const spdMatch = clean.match(/(?:speed|knots)\s*(\d{3})/);
+  if (spdMatch) {
+    let spd = Math.max(150, Math.min(280, parseInt(spdMatch[1])));
+    target.targetSpd = spd;
+    readbacks.push(`speed ${spd} knots`);
+  }
+
+  if (clean.includes('approach') || clean.includes('ils') || (clean.includes('cleared') && !clean.includes('takeoff'))) {
+    const chosenRwy = rwy || target.assignedRwy || '26';
+    target.assignedRwy = chosenRwy;
+    target.clearedApproach = true;
+    target.targetHdg = RUNWAYS[chosenRwy].hdg;
+    if (target.targetAlt > 3000) target.targetAlt = 3000;
+    if (target.targetSpd > 175) target.targetSpd = 175;
+    readbacks.push(`cleared ILS runway ${chosenRwy} approach`);
+  }
+
+  updateStrips();
+  updateRecommendedCallout();
+
+  if (readbacks.length > 0) {
+    const response = `${readbacks.join(', ')}, ${target.spokenName}.`;
+    setTimeout(() => pilotSpeak(response, target.voiceIdx, target.isEmergency), 300);
+  } else {
+    setTimeout(() => pilotSpeak(`Say again for ${target.spokenName}?`, target.voiceIdx), 300);
+  }
+}
+
+// ==========================================
+// 6. PHYSICS & RENDER LOOP
+// ==========================================
+function updatePhysics(dt) {
+  const simSpeed = 8; // Slower, comfortable pace
+
+  for (let i = planes.length - 1; i >= 0; i--) {
+    const p = planes[i];
+
+    // GROUND TAXI OUT TO RUNWAY THRESHOLD
+    if (p.phase === 'TAXI_OUT') {
+      const rwy = RUNWAYS[p.assignedRwy];
+      const holdX = rwy.xEast - 0.05;
+      const holdY = rwy.y + (rwy.id === '26' ? 0.12 : -0.12);
+      const dx = holdX - p.x;
+      const dy = holdY - p.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 0.04) {
+        p.x = holdX; p.y = holdY;
+        p.hdg = rwy.hdg;
+        p.spd = 0;
+        p.phase = 'HOLD_SHORT';
+        pilotSpeak(`Phoenix Tower, ${p.spokenName} holding short runway ${rwy.id}, ready for departure.`, p.voiceIdx);
+        updateStrips();
+        updateRecommendedCallout();
+      } else {
+        p.hdg = (Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360;
+        p.x += (dx / dist) * 0.08 * dt * simSpeed;
+        p.y += (dy / dist) * 0.08 * dt * simSpeed;
+      }
+      continue;
+    }
+
+    if (p.phase === 'HOLD_SHORT' || p.phase === 'GATE' || p.phase === 'LANDED_TAXI') {
+      continue;
+    }
+
+    // TAXI TO GATE AFTER LANDING
+    if (p.phase === 'TAXI_GATE') {
+      const gate = GATES[0];
+      const dx = gate.x - p.x;
+      const dy = gate.y - p.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 0.06) {
+        score += 100;
+        opsCount++;
+        document.getElementById('score').textContent = score;
+        document.getElementById('landed').textContent = opsCount;
+        pilotSpeak(`${p.spokenName} at the gate, engines shutting down. Have a great day!`, p.voiceIdx);
+        planes.splice(i, 1);
+        if (selectedId === p.id) selectedId = planes[0]?.id || null;
+        updateStrips();
+        updateRecommendedCallout();
+      } else {
+        p.hdg = (Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360;
+        p.x += (dx / dist) * 0.1 * dt * simSpeed;
+        p.y += (dy / dist) * 0.1 * dt * simSpeed;
+      }
+      continue;
+    }
+
+    // TAKEOFF ROLL & CLIMB OUT
+    if (p.phase === 'TAKEOFF_ROLL') {
+      const rwy = RUNWAYS[p.assignedRwy];
+      p.y = rwy.y;
+      p.hdg = rwy.hdg;
+      p.spd = Math.min(230, p.spd + 18 * dt * simSpeed);
+      if (p.spd > 140) {
+        p.alt += 35 * dt * simSpeed;
+      }
+      const rad = (p.hdg - 90) * Math.PI / 180;
+      p.x += Math.cos(rad) * (p.spd / 3600) * simSpeed * dt;
+      if (p.alt >= 2500) {
+        p.phase = 'DEPARTING';
+        p.targetAlt = 8000;
+        updateStrips();
+        updateRecommendedCallout();
+      }
+      continue;
+    }
+
+    // AIRBORNE & DEPARTING FLIGHT PHYSICS
+    let diff = ((p.targetHdg - p.hdg + 540) % 360) - 180;
+    const turnRate = 3.0 * dt * (simSpeed / 4);
+    if (Math.abs(diff) < turnRate) p.hdg = p.targetHdg;
+    else p.hdg = (p.hdg + Math.sign(diff) * turnRate + 360) % 360;
+
+    const altDiff = p.targetAlt - p.alt;
+    const climbRate = 28 * dt * simSpeed;
+    if (Math.abs(altDiff) < climbRate) p.alt = p.targetAlt;
+    else p.alt += Math.sign(altDiff) * climbRate;
+
+    const spdDiff = p.targetSpd - p.spd;
+    const accel = 2 * dt * simSpeed;
+    if (Math.abs(spdDiff) < accel) p.spd = p.targetSpd;
+    else p.spd += Math.sign(spdDiff) * accel;
+
+    // ILS Capture for assigned runway
+    if (p.clearedApproach) {
+      const rwy = RUNWAYS[p.assignedRwy] || RUNWAYS['26'];
+      const dy = p.y - rwy.y;
+      if (p.x > 0.5 && Math.abs(dy) < 4.5) {
+        const interceptHdg = rwy.hdg + Math.max(-25, Math.min(25, dy * 8));
+        p.targetHdg = (interceptHdg + 360) % 360;
+        const gsAlt = Math.max(1100, Math.round(p.x * 300));
+        if (p.alt > gsAlt) p.targetAlt = gsAlt;
+      }
+    }
+
+    const rad = (p.hdg - 90) * Math.PI / 180;
+    const nmPerSec = (p.spd / 3600) * simSpeed;
+    p.x += Math.cos(rad) * nmPerSec * dt;
+    p.y += Math.sin(rad) * nmPerSec * dt;
+
+    if (Math.random() < 0.12) {
+      p.history.push({ x: p.x, y: p.y });
+      if (p.history.length > 8) p.history.shift();
+    }
+
+    // Check Landing Touchdown
+    const rwy = RUNWAYS[p.assignedRwy] || RUNWAYS['26'];
+    const distToRwy = Math.hypot(p.x - rwy.xEast, p.y - rwy.y);
+    if (p.type === 'ARRIVAL' && distToRwy < 1.3 && p.clearedApproach && p.alt <= 2400) {
+      const bonus = p.isEmergency ? 300 : 100;
+      score += bonus;
+      opsCount++;
+      document.getElementById('score').textContent = score;
+      document.getElementById('landed').textContent = opsCount;
+
+      if (p.isEmergency) {
+        document.getElementById('emergencyBanner').style.display = 'none';
+        pilotSpeak(`${p.spokenName} safely on the ground, fire trucks standing by! Thank you Approach!`, p.voiceIdx, true);
+      } else {
+        pilotSpeak(`${p.spokenName} vacated runway ${rwy.id}, ready to taxi to the gate.`, p.voiceIdx);
+      }
+
+      p.phase = 'LANDED_TAXI';
+      p.x = rwy.xWest + 0.1;
+      p.y = rwy.y;
+      p.alt = 0;
+      p.spd = 0;
+      updateStrips();
+      updateRecommendedCallout();
+      continue;
+    }
+
+    // Departure Handoff at 22 NM
+    const distCenter = Math.hypot(p.x, p.y);
+    if (p.phase === 'DEPARTING' && distCenter > 22) {
+      score += 100;
+      opsCount++;
+      document.getElementById('score').textContent = score;
+      document.getElementById('landed').textContent = opsCount;
+      pilotSpeak(`${p.spokenName} passing 8,000 feet, contacting Albuquerque Center. Good day!`, p.voiceIdx);
+      planes.splice(i, 1);
+      if (selectedId === p.id) selectedId = planes[0]?.id || null;
+      updateStrips();
+      updateRecommendedCallout();
+      continue;
+    }
+
+    if (distCenter > 39) {
+      planes.splice(i, 1);
+      if (selectedId === p.id) selectedId = planes[0]?.id || null;
+      updateStrips();
+      updateRecommendedCallout();
+    }
+  }
+
+  // Conflict Check (Airborne only)
+  planes.forEach(p => p.conflict = false);
+  for (let i = 0; i < planes.length; i++) {
+    for (let j = i + 1; j < planes.length; j++) {
+      if (planes[i].alt < 1200 || planes[j].alt < 1200) continue;
+      const d = Math.hypot(planes[i].x - planes[j].x, planes[i].y - planes[j].y);
+      const altSep = Math.abs(planes[i].alt - planes[j].alt);
+      if (d < 3.0 && altSep < 1000) {
+        planes[i].conflict = true;
+        planes[j].conflict = true;
+      }
+    }
+  }
+
+  document.getElementById('activeCount').textContent = planes.length;
+}
+
+function drawAirportRunways(s) {
+  // Terminal & Apron Box
+  ctx.fillStyle = '#12241c';
+  ctx.strokeStyle = '#2d5944';
+  ctx.lineWidth = 1;
+  ctx.fillRect(cx - 0.65 * s, cy - 0.24 * s, 1.35 * s, 0.16 * s);
+  ctx.strokeRect(cx - 0.65 * s, cy - 0.24 * s, 1.35 * s, 0.16 * s);
+
+  if (currentView === 'GROUND') {
+    ctx.fillStyle = '#8ab89e';
+    ctx.font = '11px Courier New';
+    ctx.fillText('TERMINAL / GATES A1-B2', cx - 0.6 * s, cy - 0.14 * s);
+  }
+
+  // Draw 3 Runways
+  Object.values(RUNWAYS).forEach(rwy => {
+    const x1 = cx + rwy.xWest * s;
+    const x2 = cx + rwy.xEast * s;
+    const y = cy + rwy.y * s;
+
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = currentView === 'GROUND' ? 10 : 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x1, y);
+    ctx.lineTo(x2, y);
+    ctx.stroke();
+
+    if (currentView === 'GROUND') {
+      // Centerline dashes
+      ctx.strokeStyle = '#040806';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath();
+      ctx.moveTo(x1 + 8, y);
+      ctx.lineTo(x2 - 8, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#00e5ff';
+      ctx.font = 'bold 12px Courier New';
+      ctx.fillText(rwy.label, x1, y - 10);
+    } else {
+      // ILS Feathers on Radar View
+      ctx.strokeStyle = 'rgba(0, 229, 255, 0.25)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x2, y);
+      ctx.lineTo(cx + 15 * s, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  });
+}
+
+function drawScene() {
+  ctx.fillStyle = '#040806';
+  ctx.fillRect(0, 0, width, height);
+
+  const s = currentView === 'RADAR' ? radarScale : groundScale;
+
+  if (currentView === 'RADAR') {
+    // Range Rings
+    ctx.strokeStyle = '#12291c';
+    ctx.lineWidth = 1;
+    [10, 20, 30].forEach(nm => {
+      ctx.beginPath();
+      ctx.arc(cx, cy, nm * s, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#1e4730';
+      ctx.font = '10px Courier New';
+      ctx.fillText(`${nm}NM`, cx + 4, cy - nm * s + 12);
+    });
+
+    // Radar Sweep
+    sweepAngle = (sweepAngle + 0.02) % (Math.PI * 2);
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 33 * s);
+    grad.addColorStop(0, 'rgba(57, 255, 20, 0.14)');
+    grad.addColorStop(1, 'rgba(57, 255, 20, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, 33 * s, sweepAngle - 0.22, sweepAngle);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    // Ground Grid
+    ctx.strokeStyle = '#0c1c14';
+    ctx.lineWidth = 1;
+    for (let gx = -1.2; gx <= 1.2; gx += 0.3) {
+      ctx.beginPath(); ctx.moveTo(cx + gx * s, 0); ctx.lineTo(cx + gx * s, height); ctx.stroke();
+    }
+    for (let gy = -1.0; gy <= 1.0; gy += 0.3) {
+      ctx.beginPath(); ctx.moveTo(0, cy + gy * s); ctx.lineTo(width, cy + gy * s); ctx.stroke();
+    }
+  }
+
+  drawAirportRunways(s);
+
+  // Draw Aircraft
+  planes.forEach(p => {
+    const px = cx + p.x * s;
+    const py = cy + p.y * s;
+    const isSel = p.id === selectedId;
+    const color = p.isEmergency ? '#ff3b3b' : (p.conflict ? '#ff3b3b' : (isSel ? '#00e5ff' : '#39ff14'));
+
+    if (currentView === 'RADAR' && p.alt > 0) {
+      ctx.fillStyle = 'rgba(57, 255, 20, 0.3)';
+      p.history.forEach(pt => {
+        ctx.fillRect(cx + pt.x * s - 1, cy + pt.y * s - 1, 2, 2);
+      });
+
+      const rad = (p.hdg - 90) * Math.PI / 180;
+      const vecLen = (p.spd / 60) * s;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + Math.cos(rad) * vecLen, py + Math.sin(rad) * vecLen);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(px - 5, py - 5, 10, 10);
+
+    ctx.font = 'bold 11px Courier New';
+    const tag = p.isEmergency ? `${p.callsign} [MAYDAY]` : p.callsign;
+    ctx.fillText(tag, px + 10, py - 4);
+    ctx.font = '10px Courier New';
+    if (p.alt === 0) {
+      ctx.fillText(`GND: ${p.phase}`, px + 10, py + 8);
+    } else {
+      const altFl = Math.round(p.alt / 100).toString().padStart(3, '0');
+      ctx.fillText(`FL${altFl} ${Math.round(p.spd)}KT`, px + 10, py + 8);
+    }
+  });
+}
+
+function loop(timestamp) {
+  if (!lastTime) lastTime = timestamp;
+  const dt = Math.min(0.1, (timestamp - lastTime) / 1000);
+  lastTime = timestamp;
+
+  updatePhysics(dt);
+  drawScene();
+  requestAnimationFrame(loop);
+}
+
+// ==========================================
+// 7. UI & EVENT HANDLERS
+// ==========================================
+function updateStrips() {
+  const container = document.getElementById('strips');
+  container.innerHTML = '';
+  planes.forEach(p => {
+    const div = document.createElement('div');
+    const cls = p.isEmergency ? 'emergency' : (p.alt === 0 ? 'ground' : (p.clearedApproach ? 'landing' : ''));
+    div.className = `strip ${p.id === selectedId ? 'selected' : ''} ${cls}`;
+    div.onclick = () => {
+      selectedId = p.id;
+      updateStrips();
+      updateRecommendedCallout();
+    };
+    const statusTxt = p.isEmergency ? 'MAYDAY PRIORITY' : (p.alt === 0 ? p.phase : (p.clearedApproach ? `ILS ${p.assignedRwy}` : 'ARRIVAL'));
+    div.innerHTML = `
+      <div>
+        <div class="callsign">${p.callsign}</div>
+        <div class="meta">${statusTxt}</div>
+      </div>
+      <div style="text-align:right">
+        <div>${p.alt === 0 ? `RWY ${p.assignedRwy}` : `HDG ${Math.round(p.hdg)}° → ${p.targetHdg}°`}</div>
+        <div class="meta">${p.alt === 0 ? 'GROUND' : `${Math.round(p.alt)}ft | ${Math.round(p.spd)}kt`}</div>
+      </div>
+    `;
+    container.appendChild(div);
+  });
+}
+
+function logMessage(sender, text) {
+  const log = document.getElementById('log');
+  const div = document.createElement('div');
+  div.className = sender === 'ATC' ? 'msg-atc' : (sender === 'EMG' ? 'msg-emg' : (sender === 'PILOT' ? 'msg-pilot' : 'msg-sys'));
+  div.textContent = `[${sender}] ${text}`;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+document.getElementById('startBtn').onclick = async () => {
+  document.getElementById('startOverlay').style.display = 'none';
+  initAudioAndVoices();
+  await lockMicrophonePermission();
+  resize();
+
+  // Slow paced start: 1 plane immediately, next after 28s, then every 42s
+  spawnTraffic();
+  setTimeout(spawnTraffic, 28000);
+  setInterval(spawnTraffic, 42000);
+  setInterval(() => {
+    updateStrips();
+    updateRecommendedCallout();
+  }, 1500);
+  requestAnimationFrame(loop);
+};
+
+document.getElementById('testVoiceBtn').onclick = () => {
+  initAudioAndVoices();
+  pilotSpeak('Phoenix Approach, radio check loud and clear, five by five.', 0);
+};
+
+document.getElementById('sendRecBtn').onclick = () => {
+  const txt = document.getElementById('recommendedText').textContent;
+  if (txt && txt.startsWith('"')) {
+    processCommand(txt);
+  }
+};
+
+document.getElementById('cmdForm').onsubmit = (e) => {
+  e.preventDefault();
+  const input = document.getElementById('cmdInput');
+  if (input.value.trim()) {
+    processCommand(input.value.trim());
+    input.value = '';
+  }
+};
+
+const pttBtn = document.getElementById('pttBtn');
+pttBtn.onmousedown = startListening;
+pttBtn.onmouseup = stopListening;
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
+    e.preventDefault();
+    startListening();
+  }
+});
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
+    e.preventDefault();
+    stopListening();
+  }
+});
+
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const s = currentView === 'RADAR' ? radarScale : groundScale;
+  for (const p of planes) {
+    const px = cx + p.x * s;
+    const py = cy + p.y * s;
+    if (Math.hypot(mx - px, my - py) < 22) {
+      selectedId = p.id;
+      updateStrips();
+      updateRecommendedCallout();
+      break;
+    }
+  }
+});
+</script>
+</body>
+</html>
