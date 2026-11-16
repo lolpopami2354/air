@@ -297,17 +297,31 @@ function processSpeechQueue() {
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
 let isListening = false;
+let recognitionTranscript = '';
 
 if (SpeechRecognition) {
   recognition = new SpeechRecognition();
   recognition.lang = 'en-US';
-  recognition.interimResults = false;
+  recognition.continuous = true;
+  recognition.interimResults = true;
   recognition.maxAlternatives = 1;
 
   recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    document.getElementById('cmdInput').value = transcript;
-    processCommand(transcript);
+    let interimTranscript = '';
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const result = event.results[i];
+      if (result.isFinal) {
+        recognitionTranscript += `${result[0].transcript} `;
+      } else {
+        interimTranscript += result[0].transcript;
+      }
+    }
+
+    // Show recognized text as you speak, but wait until listening ends
+    // before sending the command to the simulator.
+    document.getElementById('cmdInput').value =
+      `${recognitionTranscript}${interimTranscript}`.trim();
   };
 
   recognition.onerror = (e) => {
@@ -317,7 +331,20 @@ if (SpeechRecognition) {
     stopListening();
   };
 
-  recognition.onend = () => stopListening();
+  recognition.onend = () => {
+    isListening = false;
+    const btn = document.getElementById('pttBtn');
+    btn.classList.remove('active');
+    btn.textContent = 'HOLD [SPACE] OR CLICK TO TALK';
+
+    const transcript = recognitionTranscript.trim();
+    recognitionTranscript = '';
+
+    if (transcript) {
+      document.getElementById('cmdInput').value = transcript;
+      processCommand(transcript);
+    }
+  };
 }
 
 function startListening() {
@@ -326,23 +353,38 @@ function startListening() {
     return;
   }
   if (isListening) return;
+
   if (window.speechSynthesis.speaking) {
     window.speechSynthesis.cancel();
     isSpeaking = false;
   }
+
+  recognitionTranscript = '';
   isListening = true;
   const btn = document.getElementById('pttBtn');
   btn.classList.add('active');
   btn.textContent = 'LISTENING... SPEAK CLEARLY';
-  try { recognition.start(); } catch (e) {}
+
+  try {
+    recognition.start();
+  } catch (e) {
+    isListening = false;
+    btn.classList.remove('active');
+    btn.textContent = 'HOLD [SPACE] OR CLICK TO TALK';
+  }
 }
 
 function stopListening() {
+  if (!isListening) return;
+
   isListening = false;
   const btn = document.getElementById('pttBtn');
   btn.classList.remove('active');
   btn.textContent = 'HOLD [SPACE] OR CLICK TO TALK';
-  try { recognition.stop(); } catch (e) {}
+
+  try {
+    recognition.stop();
+  } catch (e) {}
 }
 
 // ==========================================
